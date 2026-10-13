@@ -2,3 +2,15 @@
 *.pyc
 __pycache__/
 .venv/
+
+# Security tool local artifacts
+semgrep-results.sarif
+bandit-results.sarif
+trivy-fs-results.sarif
+trivy-image-results.sarif
+hadolint-results.sarif
+checkov-results.sarif
+pip-audit-results.json
+pip-audit-results.sarif
+snyk-*.sarif
+security-reports/
