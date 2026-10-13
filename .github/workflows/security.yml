@@ -1,0 +1,335 @@
+name: Security Scan
+
+# Simplified shift-left security pipeline for VulnBank.
+# Snyk (already integrated with the repo) is the primary scanner for SAST,
+# SCA, container and IaC. The open-source tools below provide a lightweight
+# backup / local-dev fallback and remain non-blocking while you learn.
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
+
+env:
+  IMAGE_NAME: vuln-bank
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Secret detection
+  #    Gitleaks covers a domain Snyk does not focus on.
+  # ---------------------------------------------------------------------------
+  secrets-scan:
+    name: Secret Detection
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: security/gitleaks/gitleaks.toml
+        continue-on-error: true
+
+  # ---------------------------------------------------------------------------
+  # 2. SAST backup
+  #    Primary: Snyk Code (via GitHub integration).
+  #    Backup: Semgrep for quick local/CI feedback and custom VulnBank rules.
+  # ---------------------------------------------------------------------------
+  sast-semgrep:
+    name: SAST - Semgrep Backup
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Semgrep
+        run: pip install semgrep
+
+      - name: Run Semgrep
+        run: |
+          semgrep --config=security/semgrep/semgrep-config.yml \
+                  --config=p/python \
+                  --config=p/owasp-top-ten \
+                  --config=p/cwe-top-25 \
+                  --sarif-output=semgrep-results.sarif \
+                  --error
+        continue-on-error: true
+
+      - name: Upload Semgrep SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: semgrep-results.sarif
+          category: semgrep
+
+      - name: Upload Semgrep report artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: semgrep-results
+          path: semgrep-results.sarif
+
+  # ---------------------------------------------------------------------------
+  # 3. SCA backup
+  #    Primary: Snyk Open Source (via GitHub integration).
+  #    Backup: pip-audit for PyPA advisories and easy local runs.
+  # ---------------------------------------------------------------------------
+  sca-pip-audit:
+    name: SCA - pip-audit Backup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      - name: Run pip-audit
+        run: |
+          pip-audit --requirement=requirements.txt \
+                    --format=json \
+                    --output=pip-audit-results.json \
+                    --desc || true
+
+      - name: Convert pip-audit JSON to SARIF
+        run: python security/scripts/pip-audit-to-sarif.py
+        continue-on-error: true
+
+      - name: Upload pip-audit SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: pip-audit-results.sarif
+          category: pip-audit
+
+      - name: Upload pip-audit report artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pip-audit-results
+          path: |
+            pip-audit-results.json
+            pip-audit-results.sarif
+
+  # ---------------------------------------------------------------------------
+  # 4. Container / Dockerfile
+  #    Primary: Snyk Container (via GitHub integration).
+  #    Backup: Hadolint for Dockerfile best practices + Trivy image for local
+  #            image vulnerability scans.
+  # ---------------------------------------------------------------------------
+  image-hadolint:
+    name: Image - Hadolint Backup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Hadolint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+          config: security/hadolint.yml
+          format: sarif
+          output: hadolint-results.sarif
+          no-fail: true
+
+      - name: Upload Hadolint SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: hadolint-results.sarif
+          category: hadolint
+
+      - name: Upload Hadolint report artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hadolint-results
+          path: hadolint-results.sarif
+
+  image-trivy:
+    name: Image - Trivy Backup Scan
+    runs-on: ubuntu-latest
+    needs: image-hadolint
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        run: docker build -t ${{ env.IMAGE_NAME }}:ci .
+
+      - name: Run Trivy image scan
+        uses: aquasecurity/trivy-action@0.29.0
+        with:
+          image-ref: '${{ env.IMAGE_NAME }}:ci'
+          format: 'sarif'
+          output: 'trivy-image-results.sarif'
+          exit-code: '0'
+          ignore-unfixed: false
+          severity: 'CRITICAL,HIGH,MEDIUM,LOW'
+          trivyignores: security/trivy/.trivyignore
+
+      - name: Upload Trivy image SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-image-results.sarif
+          category: trivy-image
+
+      - name: Upload Trivy image report artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-image-results
+          path: trivy-image-results.sarif
+
+  # ---------------------------------------------------------------------------
+  # 5. IaC / config backup
+  #    Primary: Snyk IaC (via GitHub integration).
+  #    Backup: Checkov for Dockerfile + docker-compose specific checks.
+  # ---------------------------------------------------------------------------
+  iac-checkov:
+    name: IaC - Checkov Backup
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Checkov
+        run: pip install checkov
+
+      - name: Run Checkov
+        run: |
+          checkov --file Dockerfile \
+                  --file docker-compose.yml \
+                  --config-file security/checkov-config.yml \
+                  --output sarif \
+                  --output-file-path checkov-results.sarif \
+                  --soft-fail
+
+      - name: Upload Checkov SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: checkov-results.sarif
+          category: checkov
+
+      - name: Upload Checkov report artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkov-results
+          path: checkov-results.sarif
+
+  # ---------------------------------------------------------------------------
+  # 6. Smoke test (no DAST yet)
+  #    Verifies the container starts and /healthz responds.
+  # ---------------------------------------------------------------------------
+  runtime-smoke:
+    name: Runtime Smoke Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Start application stack
+        run: |
+          docker compose up -d --build
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:5000/healthz; then
+              echo "Application is healthy"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Application failed to become healthy"
+          docker compose logs
+          exit 1
+
+      - name: Collect smoke test info
+        if: always()
+        run: |
+          curl -s http://127.0.0.1:5000/healthz -o healthz-response.json || true
+          docker compose ps || true
+
+      - name: Stop application stack
+        if: always()
+        run: docker compose down --volumes
+
+      - name: Upload smoke test info
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-test-info
+          path: healthz-response.json
+
+  # ---------------------------------------------------------------------------
+  # 7. Security summary
+  # ---------------------------------------------------------------------------
+  security-summary:
+    name: Security Summary
+    runs-on: ubuntu-latest
+    needs:
+      - secrets-scan
+      - sast-semgrep
+      - sca-pip-audit
+      - image-hadolint
+      - image-trivy
+      - iac-checkov
+      - runtime-smoke
+    steps:
+      - name: Download all SARIF artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: security-reports
+
+      - name: Print summary
+        run: |
+          echo "### Security scan report" >> $GITHUB_STEP_SUMMARY
+          echo "Snyk (primary) runs via the GitHub integration." >> $GITHUB_STEP_SUMMARY
+          echo "Open-source backups run in CI for local reproducibility." >> $GITHUB_STEP_SUMMARY
+          echo "All jobs are non-blocking while you build a baseline." >> $GITHUB_STEP_SUMMARY
+          echo "| Domain | Primary | Backup | SARIF artifact |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|---------|--------|----------------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Secrets | Gitleaks | — | logs |" >> $GITHUB_STEP_SUMMARY
+          echo "| SAST | Snyk Code | Semgrep | semgrep-results/semgrep-results.sarif |" >> $GITHUB_STEP_SUMMARY
+          echo "| SCA | Snyk Open Source | pip-audit | pip-audit-results/pip-audit-results.sarif |" >> $GITHUB_STEP_SUMMARY
+          echo "| Dockerfile | Snyk Container | Hadolint | hadolint-results/hadolint-results.sarif |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image OS/libs | Snyk Container | Trivy image | trivy-image-results/trivy-image-results.sarif |" >> $GITHUB_STEP_SUMMARY
+          echo "| IaC/config | Snyk IaC | Checkov | checkov-results/checkov-results.sarif |" >> $GITHUB_STEP_SUMMARY
