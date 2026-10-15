@@ -1,0 +1,14 @@
+# Trivy ignore file for VulnBank.
+# Syntax: CVE-ID or GHSA-ID, optionally with expiry date and reason.
+#
+# IMPORTANT: This file should only suppress vulnerabilities you have triaged.
+# For a deliberately vulnerable training app you will see many OS/package CVEs.
+# Start with an empty file, run the pipeline, then add entries with a reason.
+
+# Example format:
+# CVE-2023-12345 exp:2025-12-31
+#   Reason: Demo app running in isolated CI only; not exposed to production.
+
+# Python 3.9 base image CVEs often appear here. Uncomment after triage.
+# CVE-2024-XXXX exp:2025-12-31
+#   Base image is python:3.9-slim; upgrade to 3.11-slim or 3.12-slim planned.

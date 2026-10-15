@@ -1,0 +1,15 @@
+# Hadolint Dockerfile lint configuration.
+# Reference: https://github.com/hadolint/hadolint#configure
+
+# Treat these rules as warnings instead of errors while you tune the baseline.
+ignored:
+  # DL3008: Pin versions in apt get install.
+  - DL3008
+  # DL3013: Pin versions in pip install.
+  - DL3013
+  # DL3059: Multiple consecutive RUN instructions.
+  - DL3059
+
+# Optional: require specific labels on the image.
+# label-schema:
+#   author: text

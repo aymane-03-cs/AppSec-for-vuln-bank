@@ -1,0 +1,93 @@
+# Semgrep configuration for VulnBank.
+# This file is loaded via --config=security/semgrep/semgrep-config.yml
+# and is combined with public rulesets in the CI pipeline.
+
+# -----------------------------------------------------------------------------
+# Include public rule packs in addition to custom rules below.
+# These are already passed on the command line in security.yml; including them
+# here makes local runs consistent.
+# -----------------------------------------------------------------------------
+# config:
+#   - p/python
+#   - p/owasp-top-ten
+#   - p/cwe-top-25
+
+# -----------------------------------------------------------------------------
+# Paths to scan.
+# -----------------------------------------------------------------------------
+paths:
+  include:
+    - .
+  exclude:
+    - .git
+    - venv
+    - .venv
+    - node_modules
+    - tests
+    - static
+    - templates
+    - security
+
+# -----------------------------------------------------------------------------
+# Scan metadata.
+# -----------------------------------------------------------------------------
+metadata:
+  name: "VulnBank Semgrep policy"
+  description: "Custom Semgrep rules and baseline overrides for the deliberately vulnerable VulnBank app."
+
+# -----------------------------------------------------------------------------
+# Custom rules specific to this project.
+# -----------------------------------------------------------------------------
+rules:
+  - id: vulnbank-hardcoded-secret-key
+    pattern-either:
+      - pattern: app.secret_key = "..."
+      - pattern: JWT_SECRET = "..."
+    languages: [python]
+    message: |
+      Hardcoded secret material detected. In VulnBank this is intentional,
+      but any new occurrence should be loaded from environment variables.
+    severity: WARNING
+    metadata:
+      cwe: "CWE-798: Use of Hard-coded Credentials"
+      owasp: "A05:2021 - Security Misconfiguration"
+
+  - id: vulnbank-sql-string-formatting
+    patterns:
+      - pattern-either:
+          - pattern: execute_query(f"...", ...)
+          - pattern: cursor.execute(f"...", ...)
+          - pattern: execute_query($QUERY.format(...), ...)
+    languages: [python]
+    message: |
+      SQL query built with f-string or format(). This is an injection risk.
+      The existing instances are intentional training vulnerabilities;
+      mark new ones as blocking.
+    severity: ERROR
+    metadata:
+      cwe: "CWE-89: SQL Injection"
+      owasp: "A03:2021 - Injection"
+
+  - id: vulnbank-requests-without-verify
+    patterns:
+      - pattern: requests.get(..., verify=False, ...)
+    languages: [python]
+    message: |
+      SSL certificate verification disabled. Intentional for the SSRF demo;
+      new occurrences should validate certificates or use a safe transport.
+    severity: WARNING
+    metadata:
+      cwe: "CWE-295: Improper Certificate Validation"
+      owasp: "A02:2021 - Cryptographic Failures"
+
+  - id: vulnbank-debug-mode
+    patterns:
+      - pattern: app.run(..., debug=True, ...)
+    languages: [python]
+    message: |
+      Flask debug mode enabled. Acceptable for a lab, but must be false in any
+      real deployment.
+    severity: WARNING
+    metadata:
+      cwe: "CWE-489: Active Debug Code"
+      owasp: "A05:2021 - Security Misconfiguration"

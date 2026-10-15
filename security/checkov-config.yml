@@ -1,0 +1,32 @@
+# Checkov IaC/config scan configuration.
+# Run locally: checkov --file Dockerfile --file docker-compose.yml --config-file security/checkov-config.yml
+
+# ------------------------------------------------------------------------------
+# Framework selection.
+# ------------------------------------------------------------------------------
+framework:
+  - dockerfile
+  - dockercompose
+
+# ------------------------------------------------------------------------------
+# Soft-fail in CI so findings are reported without breaking the build.
+# ------------------------------------------------------------------------------
+soft-fail: true
+
+# ------------------------------------------------------------------------------
+# Skip checks that conflict with the intentional training setup.
+# Add check IDs here after you triage the first run.
+# ------------------------------------------------------------------------------
+skip-check:
+  # CKV_DOCKER_2: Ensure HEALTHCHECK is configured. Already present.
+  # CKV_DOCKER_3: Ensure USER is not root. Flask image defaults to root.
+  # CKV_DOCKER_7: Ensure MAINTAINER is set. Optional.
+  # CKV_DOCKER_8: Ensure COPY only copies what is needed. Simplifies lab.
+  # CKV_DOCKER_10: Avoid exposing SSH port. Not relevant.
+  # CKV_DOCKER_11: Ensure apt-get upgrade. Kept enabled until triaged.
+
+# ------------------------------------------------------------------------------
+# Output format. SARIF is produced separately in CI.
+# ------------------------------------------------------------------------------
+output:
+  - cli

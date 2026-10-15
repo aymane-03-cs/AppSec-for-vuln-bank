@@ -1,0 +1,16 @@
+# Snyk policy file.
+# Generated/updated with: snyk ignore --id=<issue-id> --reason=<reason> --expiry=<yyyy-mm-dd>
+# Keep this file under version control so ignores are reviewed in PRs.
+
+# Version is required by Snyk CLI.
+version: v1.25.0
+
+ignore:
+  # Example entry (uncomment and fill after triage):
+  # 'SNYK-PYTHON-FLASK-123456':
+  #   - '*':
+  #       reason: 'Intentional training vulnerability; will be remediated in a dedicated pass.'
+  #       expires: '2025-12-31T00:00:00.000Z'
+  #       created: '2025-01-01T00:00:00.000Z'
+
+patch: {}

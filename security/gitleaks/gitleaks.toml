@@ -1,0 +1,45 @@
+title = "VulnBank Gitleaks config"
+
+# Extend the default Gitleaks ruleset so you don't lose generic secret detection.
+[extend]
+path = "https://raw.githubusercontent.com/gitleaks/gitleaks/master/config/gitleaks.toml"
+useDefault = true
+
+# ------------------------------------------------------------------------------
+# Global allowlist
+# ------------------------------------------------------------------------------
+[allowlist]
+# Regex targets paths or strings. Commonly excluded test fixtures and docs.
+paths = [
+  '''tests\/''',
+  '''\.git/''',
+  '''node_modules/''',
+  '''\.md$''',
+  '''security\/gitleaks\/''',
+]
+regexes = [
+  # Ignore placeholder/example secrets that are clearly fake.
+  '''EXAMPLE''',
+  '''demo-key''',
+  '''secret123''',
+  '''postgres''',
+  '''^[a-f0-9]{64}$''',
+]
+
+# ------------------------------------------------------------------------------
+# Allowed findings you can reference by Gitleaks rule ID.
+# This is the preferred place to suppress intentional/demo secrets.
+# ------------------------------------------------------------------------------
+[[allowlist.rules]]
+id = "generic-api-key"
+regexes = [
+  # The seeded merchant API keys are demo values.
+  '''vk_[a-f0-9]{64}''',
+]
+
+[[allowlist.rules]]
+id = "JWT"
+regexes = [
+  # Demo JWT placeholder in docs/comments.
+  '''eyJhbGciOiJub25lIn0''',
+]
