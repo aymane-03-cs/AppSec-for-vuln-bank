@@ -10,6 +10,11 @@ on:
     - cron: '17 1 * * *'
   workflow_dispatch:
 
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
 env:
   IMAGE_NAME: vuln-bank
 
@@ -33,8 +38,6 @@ jobs:
   sast-semgrep:
     name: SAST - Semgrep Backup
     runs-on: ubuntu-latest
-    permissions:
-      security-events: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -58,8 +61,8 @@ jobs:
         continue-on-error: true
 
       - name: Upload Semgrep SARIF
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        if: always() && hashFiles('semgrep-results.sarif') != ''
         with:
           sarif_file: semgrep-results.sarif
           category: semgrep-nightly
@@ -70,6 +73,7 @@ jobs:
         with:
           name: semgrep-results-nightly
           path: semgrep-results.sarif
+          if-no-files-found: ignore
 
   sca-pip-audit:
     name: SCA - pip-audit Backup
@@ -98,8 +102,8 @@ jobs:
         continue-on-error: true
 
       - name: Upload pip-audit SARIF
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        if: always() && hashFiles('pip-audit-results.sarif') != ''
         with:
           sarif_file: pip-audit-results.sarif
           category: pip-audit-nightly
@@ -112,6 +116,7 @@ jobs:
           path: |
             pip-audit-results.json
             pip-audit-results.sarif
+          if-no-files-found: ignore
 
   image-hadolint:
     name: Image - Hadolint Backup
@@ -120,18 +125,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Install Hadolint
+        run: |
+          wget -qO /usr/local/bin/hadolint https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-x86_64
+          chmod +x /usr/local/bin/hadolint
+
       - name: Run Hadolint
-        uses: hadolint/hadolint-action@v3.1.0
-        with:
-          dockerfile: Dockerfile
-          config: security/hadolint.yml
-          format: sarif
-          output: hadolint-results.sarif
-          no-fail: true
+        run: |
+          hadolint --config security/hadolint.yml --format sarif Dockerfile > hadolint-results.sarif || true
 
       - name: Upload Hadolint SARIF
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        if: always() && hashFiles('hadolint-results.sarif') != ''
         with:
           sarif_file: hadolint-results.sarif
           category: hadolint-nightly
@@ -142,13 +147,12 @@ jobs:
         with:
           name: hadolint-results-nightly
           path: hadolint-results.sarif
+          if-no-files-found: ignore
 
   image-trivy:
     name: Image - Trivy Backup Scan
     runs-on: ubuntu-latest
     needs: image-hadolint
-    permissions:
-      security-events: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -171,8 +175,8 @@ jobs:
           trivyignores: security/trivy/.trivyignore
 
       - name: Upload Trivy image SARIF
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        if: always() && hashFiles('trivy-image-results.sarif') != ''
         with:
           sarif_file: trivy-image-results.sarif
           category: trivy-image-nightly
@@ -183,12 +187,11 @@ jobs:
         with:
           name: trivy-image-results-nightly
           path: trivy-image-results.sarif
+          if-no-files-found: ignore
 
   iac-checkov:
     name: IaC - Checkov Backup
     runs-on: ubuntu-latest
-    permissions:
-      security-events: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -207,12 +210,11 @@ jobs:
                   --file docker-compose.yml \
                   --config-file security/checkov-config.yml \
                   --output sarif \
-                  --output-file-path checkov-results.sarif \
-                  --soft-fail
+                  --soft-fail > checkov-results.sarif
 
       - name: Upload Checkov SARIF
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        if: always() && hashFiles('checkov-results.sarif') != ''
         with:
           sarif_file: checkov-results.sarif
           category: checkov-nightly
@@ -223,18 +225,16 @@ jobs:
         with:
           name: checkov-results-nightly
           path: checkov-results.sarif
+          if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
   # Optional Snyk CLI export to SARIF.
-  # Only runs if you set the SNYK_TOKEN secret and want Snyk results in the
-  # GitHub Security tab alongside the other tools.
+  # Only runs if you configure the SNYK_TOKEN secret and want Snyk results in
+  # the GitHub Security tab alongside the other tools.
   # ---------------------------------------------------------------------------
   snyk-sca:
     name: Snyk - Open Source SARIF Export
     runs-on: ubuntu-latest
-    # This job only makes sense if you configure the SNYK_TOKEN secret.
-    # GitHub Actions does not allow `secrets` in job-level `if`, so we skip
-    # conditionally inside the first step instead.
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -249,8 +249,8 @@ jobs:
           snyk test --file=requirements.txt --sarif-file-output=snyk-sca-results.sarif || true
 
       - name: Upload Snyk SCA SARIF
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        if: always() && hashFiles('snyk-sca-results.sarif') != ''
         with:
           sarif_file: snyk-sca-results.sarif
           category: snyk-sca
@@ -261,14 +261,12 @@ jobs:
         with:
           name: snyk-sca-results
           path: snyk-sca-results.sarif
+          if-no-files-found: ignore
 
   snyk-container:
     name: Snyk - Container SARIF Export
     runs-on: ubuntu-latest
     needs: image-hadolint
-    # This job only makes sense if you configure the SNYK_TOKEN secret.
-    # GitHub Actions does not allow `secrets` in job-level `if`, so we skip
-    # conditionally inside the first step instead.
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -289,8 +287,8 @@ jobs:
           snyk container test ${{ env.IMAGE_NAME }}:ci --file=Dockerfile --sarif-file-output=snyk-container-results.sarif || true
 
       - name: Upload Snyk container SARIF
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        if: always() && hashFiles('snyk-container-results.sarif') != ''
         with:
           sarif_file: snyk-container-results.sarif
           category: snyk-container
@@ -301,6 +299,7 @@ jobs:
         with:
           name: snyk-container-results
           path: snyk-container-results.sarif
+          if-no-files-found: ignore
 
   runtime-smoke:
     name: Runtime Smoke Test

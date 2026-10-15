@@ -12,6 +12,11 @@ on:
     branches: [main, dev]
   workflow_dispatch:
 
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
 env:
   IMAGE_NAME: vuln-bank
 
@@ -44,10 +49,6 @@ jobs:
   sast-semgrep:
     name: SAST - Semgrep Backup
     runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      contents: read
-      security-events: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -71,8 +72,8 @@ jobs:
         continue-on-error: true
 
       - name: Upload Semgrep SARIF
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        if: always() && hashFiles('semgrep-results.sarif') != ''
         with:
           sarif_file: semgrep-results.sarif
           category: semgrep
@@ -83,6 +84,7 @@ jobs:
         with:
           name: semgrep-results
           path: semgrep-results.sarif
+          if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
   # 3. SCA backup
@@ -116,8 +118,8 @@ jobs:
         continue-on-error: true
 
       - name: Upload pip-audit SARIF
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        if: always() && hashFiles('pip-audit-results.sarif') != ''
         with:
           sarif_file: pip-audit-results.sarif
           category: pip-audit
@@ -130,6 +132,7 @@ jobs:
           path: |
             pip-audit-results.json
             pip-audit-results.sarif
+          if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
   # 4. Container / Dockerfile
@@ -144,18 +147,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Install Hadolint
+        run: |
+          wget -qO /usr/local/bin/hadolint https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-x86_64
+          chmod +x /usr/local/bin/hadolint
+
       - name: Run Hadolint
-        uses: hadolint/hadolint-action@v3.1.0
-        with:
-          dockerfile: Dockerfile
-          config: security/hadolint.yml
-          format: sarif
-          output: hadolint-results.sarif
-          no-fail: true
+        run: |
+          hadolint --config security/hadolint.yml --format sarif Dockerfile > hadolint-results.sarif || true
 
       - name: Upload Hadolint SARIF
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        if: always() && hashFiles('hadolint-results.sarif') != ''
         with:
           sarif_file: hadolint-results.sarif
           category: hadolint
@@ -166,15 +169,12 @@ jobs:
         with:
           name: hadolint-results
           path: hadolint-results.sarif
+          if-no-files-found: ignore
 
   image-trivy:
     name: Image - Trivy Backup Scan
     runs-on: ubuntu-latest
     needs: image-hadolint
-    permissions:
-      actions: read
-      contents: read
-      security-events: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -197,8 +197,8 @@ jobs:
           trivyignores: security/trivy/.trivyignore
 
       - name: Upload Trivy image SARIF
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        if: always() && hashFiles('trivy-image-results.sarif') != ''
         with:
           sarif_file: trivy-image-results.sarif
           category: trivy-image
@@ -209,6 +209,7 @@ jobs:
         with:
           name: trivy-image-results
           path: trivy-image-results.sarif
+          if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
   # 5. IaC / config backup
@@ -218,10 +219,6 @@ jobs:
   iac-checkov:
     name: IaC - Checkov Backup
     runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      contents: read
-      security-events: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -240,12 +237,11 @@ jobs:
                   --file docker-compose.yml \
                   --config-file security/checkov-config.yml \
                   --output sarif \
-                  --output-file-path checkov-results.sarif \
-                  --soft-fail
+                  --soft-fail > checkov-results.sarif
 
       - name: Upload Checkov SARIF
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        if: always() && hashFiles('checkov-results.sarif') != ''
         with:
           sarif_file: checkov-results.sarif
           category: checkov
@@ -256,6 +252,7 @@ jobs:
         with:
           name: checkov-results
           path: checkov-results.sarif
+          if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
   # 6. Smoke test (no DAST yet)
@@ -298,6 +295,7 @@ jobs:
         with:
           name: smoke-test-info
           path: healthz-response.json
+          if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
   # 7. Security summary
