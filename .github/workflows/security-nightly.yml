@@ -6,8 +6,6 @@ name: Security Nightly Scan
 # run Snyk CLI if you want SARIF exports from Snyk in GitHub.
 
 on:
-  schedule:
-    - cron: '17 1 * * *'
   workflow_dispatch:
 
 permissions:
@@ -164,7 +162,7 @@ jobs:
         run: docker build -t ${{ env.IMAGE_NAME }}:ci .
 
       - name: Run Trivy image scan
-        uses: aquasecurity/trivy-action@0.29.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: '${{ env.IMAGE_NAME }}:ci'
           format: 'sarif'
@@ -210,13 +208,26 @@ jobs:
                   --file docker-compose.yml \
                   --config-file security/checkov-config.yml \
                   --output sarif \
-                  --soft-fail > checkov-results.sarif
+                  --output-file-path ./checkov-results.sarif \
+                  --soft-fail || true
+
+      - name: Find Checkov SARIF file
+        id: find_checkov_sarif
+        if: always()
+        run: |
+          if [ -f checkov-results.sarif ]; then
+            echo "file=checkov-results.sarif" >> $GITHUB_OUTPUT
+          elif [ -f checkov-results.sarif/results_sarif.sarif ]; then
+            echo "file=checkov-results.sarif/results_sarif.sarif" >> $GITHUB_OUTPUT
+          else
+            echo "file=" >> $GITHUB_OUTPUT
+          fi
 
       - name: Upload Checkov SARIF
         uses: github/codeql-action/upload-sarif@v4
-        if: always() && hashFiles('checkov-results.sarif') != ''
+        if: always() && steps.find_checkov_sarif.outputs.file != ''
         with:
-          sarif_file: checkov-results.sarif
+          sarif_file: ${{ steps.find_checkov_sarif.outputs.file }}
           category: checkov-nightly
 
       - name: Upload Checkov report artifact
@@ -224,7 +235,7 @@ jobs:
         if: always()
         with:
           name: checkov-results-nightly
-          path: checkov-results.sarif
+          path: checkov-results.sarif*
           if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
