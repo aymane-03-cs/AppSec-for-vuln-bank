@@ -72,7 +72,7 @@ init_auth_routes(app)
 init_merchant_payment_routes(app)
 
 # FIX: Hardcoded secret key (CWE-798)
-app.secret_key = os.environ["SECRET_KEY"]
+secret_key = os.environ["SECRET_KEY"]
 if not secret_key:
     raise RuntimeError("SECRET_KEY is not set — refusing to start")
 app.secret_key = secret_key
